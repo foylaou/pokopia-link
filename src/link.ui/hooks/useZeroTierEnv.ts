@@ -8,6 +8,7 @@ export type SetupStep =
   | "installing"
   | "service-stopped"
   | "starting-service"
+  | "need-token"
   | "ready"
   | "error";
 
@@ -22,6 +23,7 @@ const INITIAL_ENV: ZeroTierEnvironment = {
   installed: false,
   serviceRunning: false,
   apiReachable: false,
+  authTokenAvailable: false,
   wingetAvailable: false,
 };
 
@@ -40,8 +42,10 @@ export function useZeroTierEnv(): UseZeroTierEnvReturn {
       );
       setEnv(result);
 
-      if (result.apiReachable) {
+      if (result.apiReachable && result.authTokenAvailable) {
         setStep("ready");
+      } else if (result.apiReachable && !result.authTokenAvailable) {
+        setStep("need-token");
       } else if (result.serviceRunning) {
         // Service is running but API not reachable yet — may be starting up
         setStep("starting-service");

@@ -8,6 +8,8 @@ import {
 import { Button } from "@/components/ui/button";
 import type { SetupStep } from "@/hooks/useZeroTierEnv";
 import type { ZeroTierEnvironment } from "@/types";
+import { invoke } from "@tauri-apps/api/core";
+import { useState } from "react";
 import {
   Download,
   Play,
@@ -15,6 +17,8 @@ import {
   Loader2,
   AlertTriangle,
   ExternalLink,
+  KeyRound,
+  ShieldCheck,
 } from "lucide-react";
 
 interface SetupWizardProps {
@@ -28,6 +32,7 @@ const steps = [
   { key: "install", label: "ZeroTier Installed" },
   { key: "service", label: "Service Running" },
   { key: "api", label: "API Reachable" },
+  { key: "token", label: "Auth Token" },
 ] as const;
 
 function StepIndicator({
@@ -48,10 +53,43 @@ export default function SetupWizard({
   error,
   onRecheck,
 }: SetupWizardProps) {
+  const [importing, setImporting] = useState(false);
+  const [manualToken, setManualToken] = useState("");
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
   const stepDone = {
     install: env?.installed ?? false,
     service: env?.serviceRunning ?? false,
     api: env?.apiReachable ?? false,
+    token: env?.authTokenAvailable ?? false,
+  };
+
+  const handleImportToken = async () => {
+    setImporting(true);
+    setTokenError(null);
+    try {
+      await invoke("import_zt_auth_token");
+      onRecheck();
+    } catch (e) {
+      setTokenError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleSaveManualToken = async () => {
+    if (!manualToken.trim()) return;
+    setImporting(true);
+    setTokenError(null);
+    try {
+      await invoke("save_zt_auth_token", { token: manualToken.trim() });
+      setManualToken("");
+      onRecheck();
+    } catch (e) {
+      setTokenError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setImporting(false);
+    }
   };
 
   const activeStep =
@@ -86,7 +124,8 @@ export default function SetupWizard({
                     stepDone.install) ||
                   (s.key === "api" &&
                     activeStep === "starting-service" &&
-                    stepDone.service)
+                    stepDone.service) ||
+                  (s.key === "token" && step === "need-token")
                 }
               />
               <span
@@ -152,6 +191,54 @@ export default function SetupWizard({
           <p className="text-xs text-muted-foreground text-center">
             正在啟動 ZeroTier Service...
           </p>
+        )}
+
+        {step === "need-token" && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              ZeroTier API 已啟動，但需要 authtoken 才能存取。
+              點擊下方按鈕自動匯入（需要管理員權限），或手動貼上 Token。
+            </p>
+            <Button
+              className="w-full"
+              onClick={handleImportToken}
+              disabled={importing}
+            >
+              {importing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-4 h-4" />
+              )}
+              自動匯入 Token（需管理員權限）
+            </Button>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="或手動貼上 authtoken.secret 內容"
+                value={manualToken}
+                onChange={(e) => setManualToken(e.target.value)}
+                className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSaveManualToken}
+                disabled={importing || !manualToken.trim()}
+              >
+                <KeyRound className="w-3 h-3" />
+                儲存
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Token 位置: C:\ProgramData\ZeroTier\One\authtoken.secret
+            </p>
+            {tokenError && (
+              <p className="text-xs text-destructive">{tokenError}</p>
+            )}
+            <Button variant="ghost" size="sm" className="w-full" onClick={onRecheck}>
+              Re-check
+            </Button>
+          </div>
         )}
 
         {step === "error" && error && (

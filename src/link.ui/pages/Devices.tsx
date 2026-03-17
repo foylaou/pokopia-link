@@ -1,3 +1,5 @@
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Card,
   CardContent,
@@ -7,8 +9,34 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Radio } from "lucide-react";
+import type { HotspotStatus, ZeroTierPeer } from "@/types";
 
 export default function Devices() {
+  const [hotspot, setHotspot] = useState<HotspotStatus | null>(null);
+  const [peers, setPeers] = useState<ZeroTierPeer[]>([]);
+
+  const fetchHotspot = useCallback(async () => {
+    try {
+      setHotspot(await invoke<HotspotStatus>("hotspot_status"));
+    } catch { /* ignore */ }
+  }, []);
+
+  const fetchPeers = useCallback(async () => {
+    try {
+      setPeers(await invoke<ZeroTierPeer[]>("zt_get_peers"));
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetchHotspot();
+    fetchPeers();
+    const id = setInterval(() => { fetchHotspot(); fetchPeers(); }, 5000);
+    return () => clearInterval(id);
+  }, [fetchHotspot, fetchPeers]);
+
+  const clientCount = hotspot?.clientCount ?? 0;
+  const leafPeers = peers.filter((p) => p.role === "LEAF");
+
   return (
     <div className="space-y-6">
       <div>
@@ -27,18 +55,33 @@ export default function Devices() {
                 <Users className="w-5 h-5 text-muted-foreground" />
                 <CardTitle className="text-sm">Hotspot Clients</CardTitle>
               </div>
-              <Badge variant="secondary">0 devices</Badge>
+              <Badge variant="secondary">
+                {clientCount} device{clientCount !== 1 ? "s" : ""}
+              </Badge>
             </div>
             <CardDescription>
-              透過 Hosted Network 連線的裝置
+              透過行動熱點連線的裝置
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border border-border bg-background p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                尚無裝置連線至熱點
-              </p>
-            </div>
+            {hotspot?.running ? (
+              <div className="rounded-md border border-border bg-background p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">SSID</span>
+                  <span className="text-sm font-mono">{hotspot.ssid}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">連線數</span>
+                  <span className="text-sm font-medium">{clientCount}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-border bg-background p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  行動熱點未啟動
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -50,18 +93,45 @@ export default function Devices() {
                 <Radio className="w-5 h-5 text-muted-foreground" />
                 <CardTitle className="text-sm">ZeroTier Peers</CardTitle>
               </div>
-              <Badge variant="secondary">0 peers</Badge>
+              <Badge variant="secondary">
+                {leafPeers.length} peer{leafPeers.length !== 1 ? "s" : ""}
+              </Badge>
             </div>
             <CardDescription>
               ZeroTier 網路中的其他節點
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border border-border bg-background p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                ZeroTier 尚未連線
-              </p>
-            </div>
+            {peers.length > 0 ? (
+              <div className="space-y-2">
+                {peers.map((peer) => (
+                  <div
+                    key={peer.address}
+                    className="rounded-md border border-border bg-background p-3 flex items-center justify-between"
+                  >
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-mono">{peer.address}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {peer.role}
+                        {peer.paths.length > 0 &&
+                          ` — ${peer.paths.filter((p) => p.active).length} active path${peer.paths.filter((p) => p.active).length !== 1 ? "s" : ""}`}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-xs font-medium ${peer.latency >= 0 ? "text-foreground" : "text-muted-foreground"}`}
+                    >
+                      {peer.latency >= 0 ? `${peer.latency} ms` : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-md border border-border bg-background p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  ZeroTier 尚未連線或無 Peer
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

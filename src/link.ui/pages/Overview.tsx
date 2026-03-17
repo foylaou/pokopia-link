@@ -1,3 +1,5 @@
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Card,
   CardContent,
@@ -9,7 +11,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import SetupWizard from "@/components/shared/SetupWizard";
 import { useZeroTierEnv } from "@/hooks/useZeroTierEnv";
 import { useZeroTierStatus } from "@/hooks/useZeroTierStatus";
-import type { ConnectionStatus } from "@/types";
+import type { ConnectionStatus, HotspotStatus, BridgeStatus } from "@/types";
 import { Network, Wifi, MonitorSmartphone } from "lucide-react";
 
 interface StatusCardProps {
@@ -43,6 +45,40 @@ export default function Overview() {
   const isReady = step === "ready";
   const { connectionStatus } = useZeroTierStatus(isReady);
 
+  const [hotspot, setHotspot] = useState<HotspotStatus | null>(null);
+  const fetchHotspot = useCallback(async () => {
+    try {
+      setHotspot(await invoke<HotspotStatus>("hotspot_status"));
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    fetchHotspot();
+    const id = setInterval(fetchHotspot, 5000);
+    return () => clearInterval(id);
+  }, [fetchHotspot]);
+
+  const hotspotStatus: ConnectionStatus = hotspot?.running ? "online" : "na";
+  const hotspotDetail = hotspot?.running
+    ? `${hotspot.ssid} — ${hotspot.clientCount} 個裝置連線`
+    : "行動熱點未啟動";
+
+  const [bridge, setBridge] = useState<BridgeStatus | null>(null);
+  const fetchBridge = useCallback(async () => {
+    try {
+      setBridge(await invoke<BridgeStatus>("bridge_status"));
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    fetchBridge();
+    const id = setInterval(fetchBridge, 5000);
+    return () => clearInterval(id);
+  }, [fetchBridge]);
+
+  const bridgeStatus: ConnectionStatus = bridge?.active ? "online" : "na";
+  const bridgeDetail = bridge?.active
+    ? `Bridge 運行中 — ${bridge.interfaces.join(", ")}`
+    : "Network Bridge 未建立";
+
   return (
     <div className="space-y-6">
       <div>
@@ -65,14 +101,14 @@ export default function Overview() {
         <StatusCard
           title="Hotspot"
           icon={Wifi}
-          status="na"
-          detail="Hosted Network 未啟動"
+          status={hotspotStatus}
+          detail={hotspotDetail}
         />
         <StatusCard
           title="Bridge"
           icon={MonitorSmartphone}
-          status="na"
-          detail="Network Bridge 未建立"
+          status={bridgeStatus}
+          detail={bridgeDetail}
         />
       </div>
 

@@ -15,6 +15,7 @@ function WindowButton({
 }) {
   return (
     <button
+      onMouseDown={(e) => e.stopPropagation()}
       onClick={onClick}
       title={title}
       className={`inline-flex items-center justify-center w-8 h-8 rounded-sm transition-colors ${

@@ -4,6 +4,7 @@ export interface ZeroTierEnvironment {
   installed: boolean;
   serviceRunning: boolean;
   apiReachable: boolean;
+  authTokenAvailable: boolean;
   wingetAvailable: boolean;
 }
 

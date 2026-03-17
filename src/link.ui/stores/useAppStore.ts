@@ -111,8 +111,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   checkAuth: async () => {
     try {
-      const state = await invoke<{ logged_in: boolean }>("get_auth_state");
-      set({ loggedIn: state.logged_in });
+      const state = await invoke<{ loggedIn: boolean }>("get_auth_state");
+      set({ loggedIn: state.loggedIn });
     } catch {
       set({ loggedIn: false });
     } finally {
@@ -160,21 +160,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   createRoom: async (name) => {
     set({ roomCreating: true, roomError: null });
     try {
-      const result = await invoke<{
-        network_id: string;
-        name: string;
-        invite_link: string;
-        member_count: number;
-      }>("zt_central_create_network", { name });
+      const result = await invoke<RoomInfo>("zt_central_create_network", { name });
 
-      await invoke("zt_join_network", { networkId: result.network_id });
+      await invoke("zt_join_network", { networkId: result.networkId });
 
-      const room: RoomInfo = {
-        networkId: result.network_id,
-        name: result.name,
-        inviteLink: result.invite_link,
-        memberCount: result.member_count,
-      };
+      const room: RoomInfo = { ...result };
       set({ room });
 
       // Auto-update Discord

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Card,
   CardContent,
@@ -9,13 +10,70 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Wifi, ClipboardCopy, Check, Power, Eye, EyeOff } from "lucide-react";
+import {
+  Wifi,
+  WifiOff,
+  ClipboardCopy,
+  Check,
+  Power,
+  Eye,
+  EyeOff,
+  Loader2,
+} from "lucide-react";
+import type { HotspotStatus } from "@/types";
 
 export default function Hotspot() {
   const [ssid, setSsid] = useState("PokopiaLink");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<HotspotStatus | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const result = await invoke<HotspotStatus>("hotspot_status");
+      setStatus(result);
+      if (result.running && result.ssid) {
+        setSsid(result.ssid);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 3000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const handleStart = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await invoke("start_hotspot", { ssid, password });
+      await fetchStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await invoke("stop_hotspot");
+      await fetchStatus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCopy = async () => {
     const text = `SSID: ${ssid}\nPassword: ${password}`;
@@ -23,6 +81,8 @@ export default function Hotspot() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const isRunning = status?.running ?? false;
 
   return (
     <div className="space-y-6">
@@ -51,6 +111,7 @@ export default function Hotspot() {
                 value={ssid}
                 onChange={(e) => setSsid(e.target.value)}
                 placeholder="PokopiaLink"
+                disabled={isRunning}
               />
             </div>
             <div className="space-y-2">
@@ -62,6 +123,7 @@ export default function Hotspot() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="至少 8 個字元"
+                  disabled={isRunning}
                 />
                 <button
                   type="button"
@@ -76,10 +138,45 @@ export default function Hotspot() {
                 </button>
               </div>
             </div>
-            <Button className="w-full" disabled={password.length < 8}>
-              <Wifi className="w-4 h-4" />
-              Start Hotspot
-            </Button>
+
+            {isRunning ? (
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleStop}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <WifiOff className="w-4 h-4" />
+                )}
+                Stop Hotspot
+              </Button>
+            ) : (
+              <Button
+                className="w-full"
+                onClick={handleStart}
+                disabled={loading || password.length < 8}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wifi className="w-4 h-4" />
+                )}
+                Start Hotspot
+              </Button>
+            )}
+
+            {isRunning && (
+              <p className="text-xs text-emerald-500 text-center">
+                Hotspot 運行中 — {status?.clientCount ?? 0} 個裝置連線
+              </p>
+            )}
+
+            {error && (
+              <p className="text-xs text-destructive text-center">{error}</p>
+            )}
           </CardContent>
         </Card>
 

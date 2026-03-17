@@ -21,13 +21,59 @@ fn read_stored_token(app: &tauri::AppHandle) -> Option<String> {
     Some(state.access_token)
 }
 
+fn zt_token_cache_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("zt_authtoken.secret"))
+}
+
+fn read_zt_auth_token(app: &tauri::AppHandle) -> Option<String> {
+    // 1. Try reading directly from ZeroTier's location
+    let system_path = r"C:\ProgramData\ZeroTier\One\authtoken.secret";
+    if let Ok(token) = fs::read_to_string(system_path) {
+        let token = token.trim().to_string();
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+
+    // 2. Fall back to cached copy in app data
+    if let Ok(cache_path) = zt_token_cache_path(app) {
+        if let Ok(token) = fs::read_to_string(cache_path) {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+    }
+
+    None
+}
+
+fn zt_local_client(token: &str) -> Result<reqwest::Client, String> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "X-ZT1-Auth",
+        reqwest::header::HeaderValue::from_str(token).map_err(|e| e.to_string())?,
+    );
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 // ── ZeroTier ──
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ZeroTierEnvironment {
     pub installed: bool,
     pub service_running: bool,
     pub api_reachable: bool,
+    pub auth_token_available: bool,
     pub winget_available: bool,
 }
 
@@ -53,6 +99,7 @@ pub struct ZeroTierPath {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ZeroTierNetwork {
     pub id: String,
     pub name: String,
@@ -64,6 +111,7 @@ pub struct ZeroTierNetwork {
 // ── Hotspot ──
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HotspotStatus {
     pub running: bool,
     pub ssid: String,
@@ -81,6 +129,7 @@ pub struct BridgeStatus {
 // ── Ping ──
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PingResult {
     pub host: String,
     pub latency_ms: Option<f64>,
@@ -95,6 +144,7 @@ struct StoredAuth {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthState {
     pub logged_in: bool,
 }
@@ -102,6 +152,7 @@ pub struct AuthState {
 // ── Room ──
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RoomInfo {
     pub network_id: String,
     pub name: String,
@@ -109,58 +160,370 @@ pub struct RoomInfo {
     pub member_count: u32,
 }
 
+// ── Commands: ZeroTier Auth Token Import ──
+
+#[tauri::command]
+pub async fn import_zt_auth_token(app: tauri::AppHandle) -> Result<bool, String> {
+    // Try direct read first
+    let system_path = r"C:\ProgramData\ZeroTier\One\authtoken.secret";
+    if let Ok(token) = fs::read_to_string(system_path) {
+        let token = token.trim().to_string();
+        if !token.is_empty() {
+            let cache = zt_token_cache_path(&app)?;
+            fs::write(&cache, &token).map_err(|e| e.to_string())?;
+            return Ok(true);
+        }
+    }
+
+    // Need elevation: use PowerShell to copy the file with admin privileges
+    let cache = zt_token_cache_path(&app)?;
+    let cache_str = cache.to_string_lossy().replace('\\', "\\\\");
+    let ps_script = format!(
+        "Copy-Item '{}' -Destination '{}' -Force",
+        system_path, cache_str
+    );
+
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-Command",
+            &format!(
+                "Start-Process powershell -ArgumentList '-Command', '{}' -Verb RunAs -Wait",
+                ps_script.replace('\'', "''")
+            ),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to launch elevated process: {}", e))?;
+
+    if !output.status.success() {
+        return Err("使用者取消了權限提升或操作失敗".to_string());
+    }
+
+    // Verify the file was copied
+    if cache.exists() {
+        Ok(true)
+    } else {
+        Err("Token 匯入失敗 — 請確認已允許管理員權限".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn save_zt_auth_token(token: String, app: tauri::AppHandle) -> Result<bool, String> {
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err("Token 不能為空".to_string());
+    }
+
+    // Validate by calling local API
+    let client = zt_local_client(&token)?;
+    let resp = client
+        .get("http://localhost:9993/status")
+        .send()
+        .await
+        .map_err(|e| format!("無法連線 ZeroTier: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err("Token 無效 — API 回傳錯誤".to_string());
+    }
+
+    let cache = zt_token_cache_path(&app)?;
+    fs::write(&cache, &token).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 // ── Commands: ZeroTier Environment ──
 
 #[tauri::command]
-pub async fn check_zerotier_environment() -> Result<ZeroTierEnvironment, String> {
-    // TODO: SCM + where.exe detection on Windows
+pub async fn check_zerotier_environment(app: tauri::AppHandle) -> Result<ZeroTierEnvironment, String> {
+    // Check if ZeroTier is installed
+    let zt_dir = std::path::Path::new(r"C:\ProgramData\ZeroTier\One");
+    let installed = zt_dir.exists();
+
+    // Check if ZeroTier service is running via sc query
+    let service_running = std::process::Command::new("sc")
+        .args(["query", "ZeroTierOneService"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING"))
+        .unwrap_or(false);
+
+    // Check if local API is reachable (any HTTP response = reachable, even 401)
+    let api_reachable = reqwest::Client::new()
+        .get("http://localhost:9993/status")
+        .send()
+        .await
+        .is_ok();
+
+    // Check if auth token is readable
+    let auth_token_available = read_zt_auth_token(&app).is_some();
+
+    // Check if winget is available
+    let winget_available = std::process::Command::new("where.exe")
+        .arg("winget")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
     Ok(ZeroTierEnvironment {
-        installed: false,
-        service_running: false,
-        api_reachable: false,
-        winget_available: false,
+        installed,
+        service_running,
+        api_reachable,
+        auth_token_available,
+        winget_available,
     })
 }
 
 #[tauri::command]
-pub async fn zt_get_status() -> Result<ZeroTierStatus, String> {
-    // TODO: GET http://localhost:9993/status
-    Err("ZeroTier not connected".to_string())
+pub async fn zt_get_status(app: tauri::AppHandle) -> Result<ZeroTierStatus, String> {
+    let token = read_zt_auth_token(&app).ok_or("Cannot read authtoken.secret — 請先匯入 ZeroTier Token")?;
+    let client = zt_local_client(&token)?;
+    let resp: serde_json::Value = client
+        .get("http://localhost:9993/status")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach ZeroTier: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid response: {}", e))?;
+
+    Ok(ZeroTierStatus {
+        online: resp["online"].as_bool().unwrap_or(false),
+        address: resp["address"].as_str().unwrap_or("").to_string(),
+        version: resp["version"].as_str().unwrap_or("").to_string(),
+    })
 }
 
 #[tauri::command]
-pub async fn zt_get_peers() -> Result<Vec<ZeroTierPeer>, String> {
-    // TODO: GET http://localhost:9993/peer
-    Err("ZeroTier not connected".to_string())
+pub async fn zt_get_peers(app: tauri::AppHandle) -> Result<Vec<ZeroTierPeer>, String> {
+    let token = read_zt_auth_token(&app).ok_or("Cannot read authtoken.secret — 請先匯入 ZeroTier Token")?;
+    let client = zt_local_client(&token)?;
+    let resp: Vec<serde_json::Value> = client
+        .get("http://localhost:9993/peer")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach ZeroTier: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid response: {}", e))?;
+
+    let peers = resp
+        .into_iter()
+        .map(|p| ZeroTierPeer {
+            address: p["address"].as_str().unwrap_or("").to_string(),
+            latency: p["latency"].as_i64().unwrap_or(-1) as i32,
+            role: p["role"].as_str().unwrap_or("").to_string(),
+            paths: p["paths"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .map(|path| ZeroTierPath {
+                            address: path["address"].as_str().unwrap_or("").to_string(),
+                            active: path["active"].as_bool().unwrap_or(false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(peers)
 }
 
 #[tauri::command]
-pub async fn zt_get_networks() -> Result<Vec<ZeroTierNetwork>, String> {
-    // TODO: GET http://localhost:9993/network
-    Err("ZeroTier not connected".to_string())
+pub async fn zt_get_networks(app: tauri::AppHandle) -> Result<Vec<ZeroTierNetwork>, String> {
+    let token = read_zt_auth_token(&app).ok_or("Cannot read authtoken.secret — 請先匯入 ZeroTier Token")?;
+    let client = zt_local_client(&token)?;
+    let resp: Vec<serde_json::Value> = client
+        .get("http://localhost:9993/network")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach ZeroTier: {}", e))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid response: {}", e))?;
+
+    let networks = resp
+        .into_iter()
+        .map(|n| ZeroTierNetwork {
+            id: n["id"].as_str().unwrap_or("").to_string(),
+            name: n["name"].as_str().unwrap_or("").to_string(),
+            status: n["status"].as_str().unwrap_or("").to_string(),
+            bridge: n["bridge"].as_bool().unwrap_or(false),
+            assigned_addresses: n["assignedAddresses"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(networks)
 }
 
-// ── Commands: Hotspot ──
+// ── Commands: Hotspot (Mobile Hotspot via WinRT) ──
+
+fn get_tethering_manager(
+) -> Result<windows::Networking::NetworkOperators::NetworkOperatorTetheringManager, String> {
+    use windows::Networking::Connectivity::NetworkInformation;
+    use windows::Networking::NetworkOperators::NetworkOperatorTetheringManager;
+
+    let profile = NetworkInformation::GetInternetConnectionProfile()
+        .map_err(|e| format!("找不到網路連線: {}", e))?;
+    NetworkOperatorTetheringManager::CreateFromConnectionProfile(&profile)
+        .map_err(|e| format!("無法建立 Tethering Manager: {}", e))
+}
 
 #[tauri::command]
 pub async fn hotspot_status() -> Result<HotspotStatus, String> {
-    // TODO: netsh wlan show hostednetwork
-    Ok(HotspotStatus {
-        running: false,
-        ssid: String::new(),
-        client_count: 0,
+    tokio::task::spawn_blocking(|| {
+        use windows::Networking::NetworkOperators::TetheringOperationalState;
+
+        let manager = get_tethering_manager()?;
+
+        let state = manager
+            .TetheringOperationalState()
+            .map_err(|e| format!("無法取得狀態: {}", e))?;
+        let config = manager
+            .GetCurrentAccessPointConfiguration()
+            .map_err(|e| format!("無法取得設定: {}", e))?;
+        let ssid = config.Ssid().map_err(|e| e.to_string())?.to_string();
+        let clients = manager.ClientCount().unwrap_or(0);
+
+        Ok(HotspotStatus {
+            running: state == TetheringOperationalState::On,
+            ssid,
+            client_count: clients,
+        })
     })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+#[tauri::command]
+pub async fn start_hotspot(ssid: String, password: String) -> Result<(), String> {
+    if password.len() < 8 {
+        return Err("密碼至少需要 8 個字元".to_string());
+    }
+
+    tokio::task::spawn_blocking(move || {
+        use windows::Networking::NetworkOperators::TetheringOperationStatus;
+
+        let manager = get_tethering_manager()?;
+
+        let config = manager
+            .GetCurrentAccessPointConfiguration()
+            .map_err(|e| format!("無法取得設定: {}", e))?;
+
+        config
+            .SetSsid(&windows::core::HSTRING::from(&ssid))
+            .map_err(|e| format!("設定 SSID 失敗: {}", e))?;
+        config
+            .SetPassphrase(&windows::core::HSTRING::from(&password))
+            .map_err(|e| format!("設定密碼失敗: {}", e))?;
+
+        manager
+            .ConfigureAccessPointAsync(&config)
+            .map_err(|e| format!("設定失敗: {}", e))?
+            .get()
+            .map_err(|e| format!("設定失敗: {}", e))?;
+
+        let start_result = manager
+            .StartTetheringAsync()
+            .map_err(|e| format!("啟動失敗: {}", e))?
+            .get()
+            .map_err(|e| format!("啟動失敗: {}", e))?;
+
+        if start_result.Status().unwrap_or(TetheringOperationStatus::Unknown)
+            != TetheringOperationStatus::Success
+        {
+            return Err("啟動熱點失敗".to_string());
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+#[tauri::command]
+pub async fn stop_hotspot() -> Result<(), String> {
+    tokio::task::spawn_blocking(|| {
+        use windows::Networking::NetworkOperators::TetheringOperationStatus;
+
+        let manager = get_tethering_manager()?;
+
+        let result = manager
+            .StopTetheringAsync()
+            .map_err(|e| format!("停止失敗: {}", e))?
+            .get()
+            .map_err(|e| format!("停止失敗: {}", e))?;
+
+        if result.Status().unwrap_or(TetheringOperationStatus::Unknown)
+            != TetheringOperationStatus::Success
+        {
+            return Err("停止熱點失敗".to_string());
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
 }
 
 // ── Commands: Bridge ──
 
+fn run_ps(script: &str) -> Result<String, String> {
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+        .output()
+        .map_err(|e| format!("PowerShell 執行失敗: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if !output.status.success() {
+        return Err(if stderr.is_empty() { stdout } else { stderr });
+    }
+    Ok(stdout)
+}
+
 #[tauri::command]
 pub async fn bridge_status() -> Result<BridgeStatus, String> {
-    // TODO: netsh bridge show
-    Ok(BridgeStatus {
-        active: false,
-        interfaces: vec![],
+    tokio::task::spawn_blocking(|| {
+        // Detect bridge adapter (Microsoft Network Adapter Multiplexor Driver)
+        let script = r#"
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$bridge = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceDescription -like '*Multiplexor*' -or ($_.Name -like '*Bridge*' -and $_.InterfaceDescription -notlike '*Hyper-V*') }
+if ($bridge -and $bridge.Status -eq 'Up') {
+    Write-Output "ACTIVE|$($bridge.Name)"
+} else {
+    Write-Output "INACTIVE|"
+}
+"#;
+        let output = run_ps(script).unwrap_or_else(|_| "INACTIVE|".to_string());
+        let parts: Vec<&str> = output.split('|').collect();
+        let active = parts.first().map(|s| *s == "ACTIVE").unwrap_or(false);
+        let name = parts.get(1).unwrap_or(&"").to_string();
+        let interfaces = if active && !name.is_empty() {
+            vec![name]
+        } else {
+            vec![]
+        };
+
+        Ok(BridgeStatus { active, interfaces })
     })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+#[tauri::command]
+pub async fn open_network_connections() -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/C", "ncpa.cpl"])
+        .spawn()
+        .map_err(|e| format!("無法開啟網路連線: {}", e))?;
+    Ok(())
 }
 
 // ── Commands: Ping ──
@@ -239,16 +602,33 @@ pub async fn zt_central_create_network(name: String, app: tauri::AppHandle) -> R
 }
 
 #[tauri::command]
-pub async fn zt_join_network(network_id: String) -> Result<(), String> {
-    // TODO: POST http://localhost:9993/network/{network_id} body: {}
-    let _ = network_id;
+pub async fn zt_join_network(network_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let token = read_zt_auth_token(&app).ok_or("Cannot read authtoken.secret — 請先匯入 ZeroTier Token")?;
+    let client = zt_local_client(&token)?;
+    let resp = client
+        .post(format!("http://localhost:9993/network/{}", network_id))
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to join network: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Failed to join network: HTTP {}", resp.status()));
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn zt_leave_network(network_id: String) -> Result<(), String> {
-    // TODO: DELETE http://localhost:9993/network/{network_id}
-    let _ = network_id;
+pub async fn zt_leave_network(network_id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let token = read_zt_auth_token(&app).ok_or("Cannot read authtoken.secret — 請先匯入 ZeroTier Token")?;
+    let client = zt_local_client(&token)?;
+    let resp = client
+        .delete(format!("http://localhost:9993/network/{}", network_id))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to leave network: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Failed to leave network: HTTP {}", resp.status()));
+    }
     Ok(())
 }
 
@@ -268,18 +648,36 @@ pub async fn zt_central_authorize_member(
 
 #[tauri::command]
 pub async fn toggle_float_window(app: tauri::AppHandle) -> Result<bool, String> {
-    if let Some(win) = app.get_webview_window("float") {
-        let visible = win.is_visible().map_err(|e| e.to_string())?;
-        if visible {
-            win.hide().map_err(|e| e.to_string())?;
-        } else {
-            win.show().map_err(|e| e.to_string())?;
-            win.set_focus().map_err(|e| e.to_string())?;
+    let win = match app.get_webview_window("float") {
+        Some(w) => w,
+        None => {
+            // Recreate the float window if it was destroyed
+            tauri::WebviewWindowBuilder::new(
+                &app,
+                "float",
+                tauri::WebviewUrl::App("index.html?window=float".into()),
+            )
+            .title("Pokopia Link - Float")
+            .inner_size(280.0, 320.0)
+            .position(100.0, 100.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .resizable(true)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("Failed to create float window: {}", e))?
         }
-        Ok(!visible)
+    };
+
+    let visible = win.is_visible().map_err(|e| e.to_string())?;
+    if visible {
+        win.hide().map_err(|e| e.to_string())?;
     } else {
-        Err("Float window not found".to_string())
+        win.show().map_err(|e| e.to_string())?;
+        win.set_focus().map_err(|e| e.to_string())?;
     }
+    Ok(!visible)
 }
 
 // ── Commands: Discord Rich Presence ──
