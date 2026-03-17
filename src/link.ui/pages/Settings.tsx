@@ -1,56 +1,72 @@
-import { User, Rocket, PanelTop, MessageSquare } from "lucide-react";
-
-function SettingSection({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: React.FC<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-      <div className="flex items-center gap-2">
-        <Icon className="w-5 h-5 text-muted-foreground" />
-        <h2 className="text-sm font-medium">{title}</h2>
-      </div>
-      {children}
-    </div>
-  );
-}
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
+import { useAutostart } from "@/hooks/useAutostart";
+import { useDiscord } from "@/hooks/useDiscord";
+import {
+  User,
+  Rocket,
+  PanelTop,
+  Gamepad2,
+  LogOut,
+  LogIn,
+  Loader2,
+} from "lucide-react";
 
 function ToggleRow({
+  id,
   label,
   description,
-  checked = false,
+  checked,
+  onCheckedChange,
+  defaultChecked,
 }: {
+  id: string;
   label: string;
   description: string;
   checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  defaultChecked?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between py-2">
-      <div>
-        <p className="text-sm">{label}</p>
+      <div className="space-y-0.5">
+        <Label htmlFor={id}>{label}</Label>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>
-      <button
-        className={`relative w-10 h-5 rounded-full transition-colors ${
-          checked ? "bg-primary" : "bg-secondary"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-5" : ""
-          }`}
-        />
-      </button>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        defaultChecked={defaultChecked}
+      />
     </div>
   );
 }
 
 export default function Settings() {
+  const { loggedIn, loading, saving, error: authError, saveToken, logout } = useAuth();
+  const autostart = useAutostart();
+  const discord = useDiscord();
+  const [tokenInput, setTokenInput] = useState("");
+
+  const handleSaveToken = async () => {
+    const ok = await saveToken(tokenInput);
+    if (ok) setTokenInput("");
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -58,62 +74,176 @@ export default function Settings() {
         <p className="text-sm text-muted-foreground mt-1">應用程式設定</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        <SettingSection title="Account" icon={User}>
-          <div className="text-sm text-muted-foreground">
-            ZeroTier Central 尚未登入
-          </div>
-          <button className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-            Login with ZeroTier
-          </button>
-        </SettingSection>
-
-        <SettingSection title="General" icon={Rocket}>
-          <ToggleRow
-            label="Auto Start"
-            description="開機時自動啟動並最小化至系統匣"
-          />
-          <ToggleRow
-            label="Minimize to Tray"
-            description="關閉視窗時最小化至系統匣"
-            checked
-          />
-        </SettingSection>
-
-        <SettingSection title="Float Window" icon={PanelTop}>
-          <ToggleRow label="Ping Chart" description="顯示即時延遲折線圖" />
-          <ToggleRow
-            label="ZeroTier Status"
-            description="顯示 ZeroTier 連線狀態"
-          />
-          <ToggleRow label="Hotspot Clients" description="顯示熱點連線裝置數量" />
-          <ToggleRow label="Bridge Status" description="顯示 Bridge 是否正常" />
-        </SettingSection>
-
-        <SettingSection title="Discord (Coming Soon)" icon={MessageSquare}>
-          <div className="space-y-3 opacity-50">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Bot Token</label>
-              <input
-                disabled
-                type="password"
-                placeholder="••••••••"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
+      <div className="space-y-4">
+        {/* Account */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <User className="w-5 h-5 text-muted-foreground" />
+                <CardTitle className="text-sm">ZeroTier Central</CardTitle>
+              </div>
+              {loggedIn && <Badge variant="secondary">Connected</Badge>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">
-                Channel ID
-              </label>
-              <input
-                disabled
-                type="text"
-                placeholder="000000000000000000"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              />
+            <CardDescription>
+              前往 my.zerotier.com → Account → API Access Tokens 建立 Token
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loading ? (
+              <p className="text-sm text-muted-foreground">檢查登入狀態...</p>
+            ) : loggedIn ? (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-emerald-500">
+                  API Token 已設定
+                </p>
+                <Button variant="ghost" size="sm" onClick={logout}>
+                  <LogOut className="w-4 h-4" />
+                  Remove Token
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="api-token">API Access Token</Label>
+                  <Input
+                    id="api-token"
+                    type="password"
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    placeholder="Paste your token here"
+                  />
+                </div>
+                {authError && (
+                  <p className="text-xs text-destructive">{authError}</p>
+                )}
+                <Button
+                  onClick={handleSaveToken}
+                  disabled={!tokenInput.trim() || saving}
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LogIn className="w-4 h-4" />
+                  )}
+                  {saving ? "Verifying..." : "Save Token"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* General */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Rocket className="w-5 h-5 text-muted-foreground" />
+              <CardTitle className="text-sm">General</CardTitle>
             </div>
-          </div>
-        </SettingSection>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <ToggleRow
+              id="autostart"
+              label="Auto Start"
+              description="開機時自動啟動並最小化至系統匣"
+              checked={autostart.enabled}
+              onCheckedChange={autostart.toggle}
+            />
+            <Separator />
+            <ToggleRow
+              id="minimize-to-tray"
+              label="Minimize to Tray"
+              description="關閉視窗時最小化至系統匣"
+              defaultChecked
+            />
+          </CardContent>
+        </Card>
+
+        {/* Float Window */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <PanelTop className="w-5 h-5 text-muted-foreground" />
+              <CardTitle className="text-sm">Float Window</CardTitle>
+            </div>
+            <CardDescription>浮動視窗顯示項目</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <ToggleRow
+              id="float-ping"
+              label="Ping Chart"
+              description="顯示即時延遲折線圖"
+            />
+            <Separator />
+            <ToggleRow
+              id="float-zt-status"
+              label="ZeroTier Status"
+              description="顯示 ZeroTier 連線狀態"
+            />
+            <Separator />
+            <ToggleRow
+              id="float-hotspot"
+              label="Hotspot Clients"
+              description="顯示熱點連線裝置數量"
+            />
+            <Separator />
+            <ToggleRow
+              id="float-bridge"
+              label="Bridge Status"
+              description="顯示 Bridge 是否正常"
+            />
+          </CardContent>
+        </Card>
+
+        {/* Discord Rich Presence */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Gamepad2 className="w-5 h-5 text-muted-foreground" />
+                <CardTitle className="text-sm">Discord</CardTitle>
+              </div>
+              {discord.connected && (
+                <Badge variant="secondary">Connected</Badge>
+              )}
+            </div>
+            <CardDescription>
+              Rich Presence — 在 Discord 顯示遊玩狀態，朋友可直接邀請加入
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {discord.connected ? (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-emerald-500">已連線至 Discord</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={discord.disconnect}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Disconnect
+                </Button>
+              </div>
+            ) : (
+              <Button
+                onClick={discord.connect}
+                disabled={discord.connecting}
+              >
+                {discord.connecting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Gamepad2 className="w-4 h-4" />
+                )}
+                {discord.connecting
+                  ? "Connecting..."
+                  : "Connect to Discord"}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              連線後加入房間會自動更新 Discord 狀態，朋友可透過 "+" 按鈕邀請加入
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

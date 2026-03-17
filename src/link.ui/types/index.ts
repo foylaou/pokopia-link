@@ -59,3 +59,14 @@ export interface PingHistoryEntry {
   timestamp: number;
   latencyMs: number | null;
 }
+
+export interface AuthState {
+  loggedIn: boolean;
+}
+
+export interface RoomInfo {
+  networkId: string;
+  name: string;
+  inviteLink: string;
+  memberCount: number;
+}

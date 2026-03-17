@@ -27,10 +27,32 @@
         "decorations": false,
         "transparent": true,
         "center": true
+      },
+      {
+        "label": "float",
+        "title": "Pokopia Link - Float",
+        "url": "index.html?window=float",
+        "width": 280,
+        "height": 320,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "resizable": true,
+        "center": false,
+        "x": 100,
+        "y": 100
       }
     ],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["pokopia-link"]
+      }
     }
   },
   "bundle": {

@@ -1,3 +1,11 @@
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Users, Radio } from "lucide-react";
 
 export default function Devices() {
@@ -12,26 +20,50 @@ export default function Devices() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Hotspot Clients */}
-        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Users className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-sm font-medium">Hotspot Clients</h2>
-          </div>
-          <div className="text-sm text-muted-foreground text-center py-8">
-            尚無裝置連線至熱點
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-muted-foreground" />
+                <CardTitle className="text-sm">Hotspot Clients</CardTitle>
+              </div>
+              <Badge variant="secondary">0 devices</Badge>
+            </div>
+            <CardDescription>
+              透過 Hosted Network 連線的裝置
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border border-border bg-background p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                尚無裝置連線至熱點
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* ZeroTier Peers */}
-        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Radio className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-sm font-medium">ZeroTier Peers</h2>
-          </div>
-          <div className="text-sm text-muted-foreground text-center py-8">
-            ZeroTier 尚未連線
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio className="w-5 h-5 text-muted-foreground" />
+                <CardTitle className="text-sm">ZeroTier Peers</CardTitle>
+              </div>
+              <Badge variant="secondary">0 peers</Badge>
+            </div>
+            <CardDescription>
+              ZeroTier 網路中的其他節點
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-md border border-border bg-background p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                ZeroTier 尚未連線
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

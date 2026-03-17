@@ -240,22 +240,34 @@ App 啟動
 - 一鍵複製邀請連結，可貼到任何平台
 - 對方點選連結，若已安裝 App 直接觸發 join network + 設定 hotspot
 
-### 5.9 Discord 整合（後期目標）
+### 5.9 Discord Rich Presence 整合
 
-| 功能 | 說明 | 優先級 |
-|------|------|--------|
-| 複製邀請連結 | 一鍵複製，可手動貼到 Discord | P1 |
-| Discord Bot 發送訊息 | Bot 將邀請 Embed Card 發到指定頻道 | P2 |
-| 點選連結自動加入 | 對方點選連結直接觸發 App join | P2 |
-| Discord Rich Presence | 顯示「正在 SwitchShare - Pokopia 房間」 | P3 |
+**方案：** 使用 Discord Rich Presence + Activity Invite（不需 Bot）
 
-**Discord Bot 架構（P2）：**
-- Bot 以 Tauri sidecar 方式運行
-- 使用者在 Settings 輸入 Bot Token + Channel ID
-- App 呼叫 Discord REST API 發送 Embed 訊息
-- 訊息包含：房間名稱、目前人數、邀請按鈕
+| 功能 | 說明 |
+|------|------|
+| Rich Presence | 顯示「正在遊玩 Pokopia Link — In Room: XXX」 |
+| Activity Invite | 朋友透過 Discord "+" 按鈕直接發送遊戲邀請 |
+| Party Info | 顯示目前人數 / 上限（如 2/4） |
+| Join Event | 對方點選邀請後自動加入對應房間 |
 
-> ⚠️ Discord Bot 需使用者自行建立並授權至目標 Server。
+**需求：**
+- Discord Developer Portal 建立 Application（取得 Application ID）
+- 選擇「Integrate the Discord Social SDK」+「Customize my game's identity on Discord」
+- Rust 端使用 `discord-rich-presence` crate 連接 Discord RPC
+
+**流程：**
+1. 使用者在 Settings 連接 Discord（本機 IPC）
+2. 建立/加入房間後自動更新 Rich Presence（房間名、人數、party ID）
+3. 朋友在 Discord 看到狀態 → 透過 "+" 按鈕發送邀請
+4. 對方點選 Join → Discord 觸發 join event → App 自動加入房間
+
+### 5.10 房間人數上限
+
+- 使用者可自行設定 Max Players（最小 2，無硬性上限）
+- 參考值：GameShare 無本體最多 2 人，有本體最多 4 人
+- 人數達上限時，邀請連結失效，顯示「房間已滿」
+- Discord Rich Presence 同步顯示 current/max party size
 
 ---
 

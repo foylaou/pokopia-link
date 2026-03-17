@@ -1,32 +1,48 @@
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import StatusBadge from "@/components/shared/StatusBadge";
-import { Wifi, Network, MonitorSmartphone } from "lucide-react";
+import SetupWizard from "@/components/shared/SetupWizard";
+import { useZeroTierEnv } from "@/hooks/useZeroTierEnv";
+import { useZeroTierStatus } from "@/hooks/useZeroTierStatus";
+import type { ConnectionStatus } from "@/types";
+import { Network, Wifi, MonitorSmartphone } from "lucide-react";
 
-function StatusCard({
-  title,
-  icon: Icon,
-  status,
-  detail,
-}: {
+interface StatusCardProps {
   title: string;
   icon: React.FC<{ className?: string }>;
-  status: "online" | "connecting" | "offline" | "na";
+  status: ConnectionStatus;
   detail: string;
-}) {
+}
+
+function StatusCard({ title, icon: Icon, status, detail }: StatusCardProps) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className="w-5 h-5 text-muted-foreground" />
-          <h3 className="text-sm font-medium">{title}</h3>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className="w-5 h-5 text-muted-foreground" />
+            <CardTitle className="text-sm">{title}</CardTitle>
+          </div>
+          <StatusBadge status={status} />
         </div>
-        <StatusBadge status={status} />
-      </div>
-      <p className="text-xs text-muted-foreground">{detail}</p>
-    </div>
+      </CardHeader>
+      <CardContent>
+        <CardDescription>{detail}</CardDescription>
+      </CardContent>
+    </Card>
   );
 }
 
 export default function Overview() {
+  const { env, step, error, recheck } = useZeroTierEnv();
+  const isReady = step === "ready";
+  const { connectionStatus } = useZeroTierStatus(isReady);
+
   return (
     <div className="space-y-6">
       <div>
@@ -36,12 +52,15 @@ export default function Overview() {
         </p>
       </div>
 
+      {/* Status cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatusCard
           title="ZeroTier"
           icon={Network}
-          status="na"
-          detail="尚未偵測到 ZeroTier One"
+          status={isReady ? connectionStatus : "na"}
+          detail={
+            isReady ? "ZeroTier One 已連線" : "尚未偵測到 ZeroTier One"
+          }
         />
         <StatusCard
           title="Hotspot"
@@ -56,6 +75,16 @@ export default function Overview() {
           detail="Network Bridge 未建立"
         />
       </div>
+
+      {/* Setup wizard — shown when ZeroTier is not ready */}
+      {!isReady && (
+        <SetupWizard
+          step={step}
+          env={env}
+          error={error}
+          onRecheck={recheck}
+        />
+      )}
     </div>
   );
 }
