@@ -1,5 +1,5 @@
 use discord_rich_presence::{
-    activity::{self, Activity, Assets, Button, Party, Timestamps},
+    activity::{Activity, Assets, Party, Secrets, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
 use std::sync::Mutex;
@@ -55,14 +55,16 @@ impl DiscordState {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let invite_link = format!(
-            "pokopia-link://join?network={}&name={}",
-            network_id, room_name
-        );
+        let state_text = format!("{}/{} players", current_size, max_size);
+        let details_text = format!("Room: {}", room_name);
+
+        // join secret encodes network_id + room_name for the receiver
+        // buttons and secrets are mutually exclusive; secrets enables the invite system
+        let join_secret = format!("pokopia:{}:{}", network_id, room_name);
 
         let activity = Activity::new()
-            .state(&format!("In Room: {}", room_name))
-            .details(&format!("{}/{} players", current_size, max_size))
+            .state(&state_text)
+            .details(&details_text)
             .timestamps(Timestamps::new().start(now))
             .assets(
                 Assets::new()
@@ -74,9 +76,10 @@ impl DiscordState {
                     .id(network_id)
                     .size([current_size as i32, max_size as i32]),
             )
-            .buttons(vec![
-                Button::new("Join Room", &invite_link),
-            ]);
+            .secrets(
+                Secrets::new()
+                    .join(&join_secret),
+            );
 
         client.set_activity(activity).map_err(|e| e.to_string())?;
         Ok(())

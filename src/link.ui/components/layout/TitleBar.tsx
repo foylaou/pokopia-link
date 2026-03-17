@@ -35,13 +35,18 @@ export default function TitleBar() {
   const handleToggleFloat = () => {
     invoke("toggle_float_window").catch(() => {});
   };
+  const handleDrag = (e: React.MouseEvent) => {
+    // Only drag on left mouse button, not on interactive elements
+    if (e.button !== 0) return;
+    getCurrentWindow().startDragging().catch(() => {});
+  };
 
   return (
     <div
-      data-tauri-drag-region
+      onMouseDown={handleDrag}
       className="flex items-center justify-between h-10 px-4 bg-card select-none shrink-0"
     >
-      <div className="flex items-center gap-2" data-tauri-drag-region>
+      <div className="flex items-center gap-2 pointer-events-none">
         <span className="text-sm font-semibold tracking-tight">
           Pokopia Link
         </span>

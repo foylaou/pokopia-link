@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ToastProvider } from "./components/shared/Toast";
 import TitleBar from "./components/layout/TitleBar";
 import TabBar from "./components/layout/TabBar";
@@ -9,6 +9,7 @@ import Hotspot from "./pages/Hotspot";
 import Monitor from "./pages/Monitor";
 import Room from "./pages/Room";
 import Settings from "./pages/Settings";
+import { useAppStore } from "./stores/useAppStore";
 
 const isFloatWindow =
   new URLSearchParams(window.location.search).get("window") === "float";
@@ -35,12 +36,16 @@ const pages: Record<TabId, React.FC> = {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const init = useAppStore((s) => s.init);
+
+  // Init on mount: check auth + auto-connect Discord
+  useEffect(() => {
+    init();
+  }, [init]);
 
   if (isFloatWindow) {
     return <FloatWidget />;
   }
-
-  const Page = pages[activeTab];
 
   return (
     <ToastProvider>
@@ -51,8 +56,17 @@ export default function App() {
           activeTab={activeTab}
           onTabChange={(id) => setActiveTab(id as TabId)}
         />
-        <main className="flex-1 overflow-auto p-6">
-          <Page />
+        <main className="flex-1 overflow-hidden relative">
+          {Object.entries(pages).map(([id, Page]) => (
+            <div
+              key={id}
+              className={`absolute inset-0 overflow-auto p-6 ${
+                activeTab === id ? "" : "hidden"
+              }`}
+            >
+              <Page />
+            </div>
+          ))}
         </main>
       </div>
     </ToastProvider>

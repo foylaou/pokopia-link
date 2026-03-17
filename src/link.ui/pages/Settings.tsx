@@ -12,9 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/hooks/useAuth";
+import { useAppStore } from "@/stores/useAppStore";
 import { useAutostart } from "@/hooks/useAutostart";
-import { useDiscord } from "@/hooks/useDiscord";
 import {
   User,
   Rocket,
@@ -57,9 +56,12 @@ function ToggleRow({
 }
 
 export default function Settings() {
-  const { loggedIn, loading, saving, error: authError, saveToken, logout } = useAuth();
+  const {
+    loggedIn, authLoading: loading, authSaving: saving, authError,
+    saveToken, logout,
+    discordConnected, discordConnecting, discordConnect, discordDisconnect,
+  } = useAppStore();
   const autostart = useAutostart();
-  const discord = useDiscord();
   const [tokenInput, setTokenInput] = useState("");
 
   const handleSaveToken = async () => {
@@ -94,9 +96,7 @@ export default function Settings() {
               <p className="text-sm text-muted-foreground">檢查登入狀態...</p>
             ) : loggedIn ? (
               <div className="flex items-center justify-between">
-                <p className="text-sm text-emerald-500">
-                  API Token 已設定
-                </p>
+                <p className="text-sm text-emerald-500">API Token 已設定</p>
                 <Button variant="ghost" size="sm" onClick={logout}>
                   <LogOut className="w-4 h-4" />
                   Remove Token
@@ -203,7 +203,7 @@ export default function Settings() {
                 <Gamepad2 className="w-5 h-5 text-muted-foreground" />
                 <CardTitle className="text-sm">Discord</CardTitle>
               </div>
-              {discord.connected && (
+              {discordConnected && (
                 <Badge variant="secondary">Connected</Badge>
               )}
             </div>
@@ -212,31 +212,22 @@ export default function Settings() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {discord.connected ? (
+            {discordConnected ? (
               <div className="flex items-center justify-between">
                 <p className="text-sm text-emerald-500">已連線至 Discord</p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={discord.disconnect}
-                >
+                <Button variant="ghost" size="sm" onClick={discordDisconnect}>
                   <LogOut className="w-4 h-4" />
                   Disconnect
                 </Button>
               </div>
             ) : (
-              <Button
-                onClick={discord.connect}
-                disabled={discord.connecting}
-              >
-                {discord.connecting ? (
+              <Button onClick={discordConnect} disabled={discordConnecting}>
+                {discordConnecting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Gamepad2 className="w-4 h-4" />
                 )}
-                {discord.connecting
-                  ? "Connecting..."
-                  : "Connect to Discord"}
+                {discordConnecting ? "Connecting..." : "Connect to Discord"}
               </Button>
             )}
             <p className="text-xs text-muted-foreground">

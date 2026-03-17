@@ -11,14 +11,19 @@ export default function FloatWidget() {
     }
   };
 
+  const handleDrag = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    getCurrentWindow().startDragging().catch(() => {});
+  };
+
   return (
     <div className="flex flex-col h-screen bg-card text-foreground rounded-lg overflow-hidden border border-border">
       {/* Drag handle */}
       <div
-        data-tauri-drag-region
-        className="flex items-center justify-between h-8 px-2 bg-card shrink-0 select-none"
+        onMouseDown={handleDrag}
+        className="flex items-center justify-between h-8 px-2 bg-card shrink-0 select-none cursor-grab active:cursor-grabbing"
       >
-        <div className="flex items-center gap-1" data-tauri-drag-region>
+        <div className="flex items-center gap-1 pointer-events-none">
           <GripVertical className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-xs font-medium text-muted-foreground">
             Pokopia Link

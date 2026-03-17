@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useRoom } from "@/hooks/useRoom";
+import { useAppStore } from "@/stores/useAppStore";
 import {
   Plus,
   LogIn,
@@ -25,11 +25,13 @@ import {
 } from "lucide-react";
 
 export default function Room() {
-  const { room, creating, joining, error, createRoom, joinRoom, leaveRoom } =
-    useRoom();
+  const {
+    room, roomCreating: creating, roomJoining: joining, roomError: error,
+    maxPlayers, setMaxPlayers,
+    createRoom, joinRoom, leaveRoom,
+  } = useAppStore();
   const [roomName, setRoomName] = useState("");
   const [joinId, setJoinId] = useState("");
-  const [maxPlayers, setMaxPlayers] = useState(4);
   const [copied, setCopied] = useState(false);
 
   const handleCreate = async () => {
@@ -89,7 +91,7 @@ export default function Room() {
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  onClick={() => setMaxPlayers((p) => Math.max(2, p - 1))}
+                  onClick={() => setMaxPlayers(Math.max(2, maxPlayers - 1))}
                   disabled={maxPlayers <= 2}
                 >
                   <Minus className="w-4 h-4" />
@@ -100,7 +102,7 @@ export default function Room() {
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  onClick={() => setMaxPlayers((p) => p + 1)}
+                  onClick={() => setMaxPlayers(maxPlayers + 1)}
                 >
                   <Plus className="w-4 h-4" />
                 </Button>
@@ -202,9 +204,7 @@ export default function Room() {
                   <Link className="w-5 h-5 text-muted-foreground" />
                   <CardTitle className="text-sm">Current Room</CardTitle>
                 </div>
-                <Badge
-                  variant={isFull ? "destructive" : "secondary"}
-                >
+                <Badge variant={isFull ? "destructive" : "secondary"}>
                   <Users className="w-3 h-3 mr-1" />
                   {room.memberCount} / {maxPlayers}
                 </Badge>
@@ -230,9 +230,7 @@ export default function Room() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() =>
-                        setMaxPlayers((p) => Math.max(2, p - 1))
-                      }
+                      onClick={() => setMaxPlayers(Math.max(2, maxPlayers - 1))}
                       disabled={maxPlayers <= 2}
                     >
                       <Minus className="w-3 h-3" />
@@ -243,7 +241,7 @@ export default function Room() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => setMaxPlayers((p) => p + 1)}
+                      onClick={() => setMaxPlayers(maxPlayers + 1)}
                     >
                       <Plus className="w-3 h-3" />
                     </Button>
